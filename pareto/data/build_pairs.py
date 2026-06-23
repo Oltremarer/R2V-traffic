@@ -18,6 +18,7 @@ from pareto.common.io import append_jsonl, write_json
 from pareto.constants import OBJECTIVE_NAMES
 from pareto.data.schema import DominancePairLabel, ObjectivePairLabel, PreferencePairLabel
 from pareto.r2v.artifact_validation import build_r2v_weight_map, get_path_value, validate_weighted_transition_rows
+from pareto.r2v.traffic_artifact_schema import validate_r2v_traffic_artifact
 
 
 PREFERENCE_TEMPLATES = {
@@ -579,6 +580,7 @@ def _prepare_r2v_sampling_records(
 
     weighted_path = Path(r2v_weighted_transitions)
     weighted_rows = load_records([weighted_path])
+    traffic_artifact_summary = validate_r2v_traffic_artifact(weighted_rows)
     weight_map, weight_summary = build_r2v_weight_map(
         weighted_rows,
         join_key=r2v_join_key,
@@ -623,6 +625,7 @@ def _prepare_r2v_sampling_records(
         "r2v_join_key": r2v_join_key,
         "r2v_weight_key": r2v_weight_key,
         "r2v_weight_summary": weight_summary,
+        "r2v_traffic_artifact_summary": traffic_artifact_summary,
         "r2v_positive_sampling_record_count": positive_count,
     }
     return copied_records, report

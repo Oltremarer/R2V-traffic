@@ -1,0 +1,6 @@
+\paragraph{Method.}
+Each transition is represented as \(x_i=(s_i,a_i,r_i,s'_i,d_i,j_i,t_i,e_i)\), where \(j_i\), \(t_i\), and \(e_i\) identify intersection, time, and episode. A detector produces a rarity score \(\rho_i\), and a diffusion backend can provide proposal or repair scores. Admission is not decided by the generator. Instead, the full R2V-Traffic mask is
+\[
+m_i=m_i^{\mathrm{support}}\land m_i^{\mathrm{ood/value}}\land m_i^{\mathrm{dynamics}}.
+\]
+The admitted mask defines replay weights \(w_i\), and downstream training samples from \(\hat{\mu}_{R2V}(i)\propto w_i\). The base traffic RL update target is unchanged; R2V changes the empirical replay distribution.

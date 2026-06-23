@@ -10,6 +10,7 @@ from pareto.r2v.traffic_candidate_selector import (
     R2VTrafficSelectorConfig,
     select_r2v_candidates,
 )
+from pareto.r2v.traffic_artifact_schema import validate_r2v_traffic_artifact
 
 
 def _transition(
@@ -104,8 +105,63 @@ def test_rare_not_valuable_transition_is_not_admitted():
     assert by_id["rare_bad"]["gates"]["value"] is False
     assert by_id["rare_bad"]["admitted"] is False
     assert by_id["rare_bad"]["debug"]["rare_is_not_value"] is True
+    assert by_id["common_good"]["gates"]["rare"] is False
+    assert by_id["common_good"]["admitted"] is True
     assert by_id["rare_good"]["admitted"] is True
-    assert summary["admitted_count"] == 1
+    assert "rare" not in summary["active_gates"]
+    assert summary["admitted_count"] == 2
+
+
+def test_full_gate_admission_does_not_require_rare_gate_when_value_support_dynamics_pass():
+    records = [
+        _transition(
+            "ordinary_repaired_to_value",
+            [0.0, 0.0],
+            [0.0, 0.0],
+            value_delta=1.0,
+            metadata=_repair_metadata(
+                source_gates=_all_gates(rare=False, value=False, support=True, safety=True),
+                final_gates=_all_gates(rare=False, value=True, support=True, safety=True),
+            ),
+        )
+    ]
+
+    candidates, _summary = select_r2v_candidates(
+        records,
+        R2VTrafficSelectorConfig(
+            repair_story="not_rare_to_val",
+            gate_variant="full",
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    assert candidates[0]["gates"]["rare"] is False
+    assert candidates[0]["admitted"] is True
+    assert "rare" not in candidates[0]["active_gates"]
+
+
+def test_zero_reward_transition_is_not_treated_as_corrupted_when_value_gate_passes():
+    records = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=0.0),
+        _transition("rare_zero_reward_good", [8.0, 8.0], [8.0, 8.0], value_delta=2.0),
+    ]
+    records[1]["env_reward"] = 0.0
+
+    candidates, _summary = select_r2v_candidates(
+        records,
+        R2VTrafficSelectorConfig(
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+    by_id = {row["transition_id"]: row for row in candidates}
+
+    assert records[1]["env_reward"] == 0.0
+    assert by_id["rare_zero_reward_good"]["gates"]["value"] is True
+    assert by_id["rare_zero_reward_good"]["admitted"] is True
 
 
 def test_safety_gate_blocks_high_rarity_high_value_transition():
@@ -134,6 +190,33 @@ def test_safety_gate_blocks_high_rarity_high_value_transition():
     assert by_id["safe_rare"]["admitted"] is True
     assert summary["gate_counts"]["safety"] == 2
     assert summary["gate_failure_counts"]["safety"] == 1
+
+
+def test_no_dynamics_gate_variant_is_ablation_not_default():
+    records = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=0.1, safety_tp1=0.0),
+        _transition("safe_rare", [8.0, 8.0], [8.0, 8.0], value_delta=2.0, safety_tp1=0.0),
+        _transition("unsafe_rare", [10.0, 10.0], [10.0, 10.0], value_delta=3.0, safety_tp1=-1.0),
+    ]
+
+    candidates, summary = select_r2v_candidates(
+        records,
+        R2VTrafficSelectorConfig(
+            rare_quantile=0.34,
+            value_quantile=0.34,
+            support_min_quantile=0.0,
+            safety_min=-0.5,
+            gate_variant="no_dynamics",
+        ),
+    )
+    by_id = {row["transition_id"]: row for row in candidates}
+
+    assert by_id["unsafe_rare"]["gates"]["safety"] is False
+    assert by_id["unsafe_rare"]["admitted"] is True
+    assert by_id["unsafe_rare"]["gate_variant"] == "no_dynamics"
+    assert "safety" not in by_id["unsafe_rare"]["active_gates"]
+    assert summary["gate_variant"] == "no_dynamics"
+    assert "safety" not in summary["active_gates"]
 
 
 def test_summary_reports_rarity_value_diagnostics_and_admission_components():
@@ -255,6 +338,34 @@ def test_repair_story_requires_source_and_final_gate_metadata():
             records,
             R2VTrafficSelectorConfig(repair_story="not_val_to_val"),
         )
+
+
+def test_not_rare_to_val_proxy_policy_can_build_without_repair_metadata():
+    records = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=0.0),
+        _transition("rare_good", [10.0, 10.0], [10.0, 10.0], value_delta=2.0),
+    ]
+
+    candidates, summary = select_r2v_candidates(
+        records,
+        R2VTrafficSelectorConfig(
+            repair_story="not_rare_to_val",
+            repair_metadata_policy="metadata_or_proxy",
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+    by_id = {row["transition_id"]: row for row in candidates}
+
+    assert by_id["rare_good"]["admitted"] is True
+    assert by_id["rare_good"]["repair_story_match"] is True
+    assert by_id["rare_good"]["source_gates"]["rare"] is False
+    assert by_id["rare_good"]["final_gates"]["rare"] is True
+    assert by_id["rare_good"]["gate_source"] == "computed_proxy_repair_metadata"
+    assert summary["repair_metadata_policy"] == "metadata_or_proxy"
+    assert summary["gate_source"] == "computed_proxy_repair_metadata"
 
 
 def test_not_val_to_val_repair_story_uses_final_gates_for_admission():
@@ -449,6 +560,164 @@ def test_score_artifact_overrides_density_rarity_but_keeps_value_gate(tmp_path: 
     assert summary["score_source"]["matched_count"] == len(records)
 
 
+def test_score_artifact_repaired_transition_feeds_weights_plus_repaired(tmp_path: Path):
+    repaired = _transition("rare_good_repaired", [0.3, 0.0], [0.4, 0.0], value_delta=2.5)
+    score_artifact = tmp_path / "diffusion_repair_scores.jsonl"
+    score_artifact.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {
+                    "transition_id": "common",
+                    "rarity_score": 0.1,
+                    "support_score": 1.0,
+                    "model_checkpoint": "r2v_diffusion.pt",
+                    "config_hash": "cfg0",
+                    "normalization_id": "norm0",
+                },
+                {
+                    "transition_id": "rare_good",
+                    "rarity_score": 9.0,
+                    "support_score": 0.9,
+                    "model_checkpoint": "r2v_diffusion.pt",
+                    "config_hash": "cfg0",
+                    "normalization_id": "norm0",
+                    "repaired_transition": repaired,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=0.0),
+        _transition("rare_good", [0.2, 0.0], [0.2, 0.0], value_delta=2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            candidate_model="diffusion_score_artifact",
+            score_artifact_path=str(score_artifact),
+            score_artifact_backend="diffusion",
+            admission_mode="weights_plus_repaired",
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+    by_id = {row["transition_id"]: row for row in weighted_rows}
+
+    assert set(by_id) == {"common", "rare_good", "rare_good_repaired"}
+    assert by_id["rare_good_repaired"]["metadata"]["r2v_row_role"] == "repaired"
+    assert by_id["rare_good_repaired"]["metadata"]["r2v_repaired_from_transition_id"] == "rare_good"
+    assert by_id["rare_good_repaired"]["metadata"]["r2v_proposal_source"] == "score_artifact.repaired_transition"
+    assert by_id["rare_good_repaired"]["metadata"]["r2v_generative_backend"] == "diffusion"
+    assert validate_r2v_traffic_artifact(weighted_rows)["admission_modes"] == ["weights_plus_repaired"]
+
+
+def test_exact_admitted_weight_overrides_bonus_weighting(tmp_path: Path):
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=0.0),
+        _transition("rare_good", [8.0, 8.0], [8.0, 8.0], value_delta=2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            admitted_weight=4.0,
+            admitted_weight_bonus=9.0,
+            max_weight=10.0,
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+    by_id = {row["transition_id"]: row for row in weighted_rows}
+
+    assert by_id["rare_good"]["metadata"]["r2v_admitted"] is True
+    assert by_id["rare_good"]["metadata"]["r2v_sample_weight"] == 4.0
+
+
+def test_weights_plus_repaired_appends_rejected_repair_proposal_with_rejected_weight(tmp_path: Path):
+    repaired = _transition("rare_bad_repaired", [0.4, 0.0], [0.5, 0.0], value_delta=0.5)
+    score_artifact = tmp_path / "diffusion_repair_scores.jsonl"
+    score_artifact.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {
+                    "transition_id": "common",
+                    "rarity_score": 0.1,
+                    "support_score": 1.0,
+                },
+                {
+                    "transition_id": "rare_bad",
+                    "rarity_score": 9.0,
+                    "support_score": 0.9,
+                    "repaired_transition": repaired,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("common", [0.0, 0.0], [0.0, 0.0], value_delta=10.0, safety_tp1=-20.0),
+        _transition("rare_bad", [0.2, 0.0], [0.2, 0.0], value_delta=-2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            candidate_model="diffusion_score_artifact",
+            score_artifact_path=str(score_artifact),
+            score_artifact_backend="diffusion",
+            admission_mode="weights_plus_repaired",
+            repair_rejected_weight=0.25,
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+    by_id = {row["transition_id"]: row for row in weighted_rows}
+
+    assert set(by_id) == {"common", "rare_bad", "rare_bad_repaired"}
+    assert by_id["rare_bad"]["metadata"]["r2v_admitted"] is False
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_row_role"] == "repair_rejected"
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_repaired_from_transition_id"] == "rare_bad"
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_repair_rejected"] is True
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_admitted"] is False
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_sample_weight"] == 0.25
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_proposal_source"] == "score_artifact.repaired_transition"
+    assert by_id["rare_bad_repaired"]["metadata"]["r2v_generative_backend"] == "diffusion"
+
+
 def test_score_artifact_missing_transition_fails_closed(tmp_path: Path):
     score_artifact = tmp_path / "scores.jsonl"
     score_artifact.write_text(
@@ -517,7 +786,139 @@ def test_cli_builds_candidate_jsonl_weighted_copy_and_summary(tmp_path: Path):
         "r2v_source_summary",
     }
     assert all(required_metadata.issubset(row["metadata"]) for row in weighted_rows)
+    assert all(row["metadata"]["r2v_traffic_schema_version"] == "r2v-traffic-artifact-v2" for row in weighted_rows)
+    assert all("r2v_traffic_gates" in row["metadata"] for row in weighted_rows)
+    assert validate_r2v_traffic_artifact(weighted_rows)["row_count"] == 4
     assert max(row["metadata"]["r2v_sample_weight"] for row in weighted_rows) > 1.0
+
+
+def test_weighted_output_records_weights_only_admission_mode_by_default(tmp_path: Path):
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("t0", [0.0, 0.0], [0.0, 0.0], value_delta=-0.1),
+        _transition("t1", [8.0, 8.0], [8.0, 8.0], value_delta=2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+
+    assert all(row["metadata"]["r2v_admission_mode"] == "weights_only" for row in weighted_rows)
+    assert all(row["metadata"]["r2v_row_role"] == "source" for row in weighted_rows)
+    assert all(row["metadata"]["r2v_repaired_from_transition_id"] is None for row in weighted_rows)
+
+
+def test_weighted_output_records_proxy_backend_without_score_artifact(tmp_path: Path):
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("t0", [0.0, 0.0], [0.0, 0.0], value_delta=-0.1),
+        _transition("t1", [8.0, 8.0], [8.0, 8.0], value_delta=2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            candidate_model="feature_density_proxy",
+            score_artifact_backend="diffusion",
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+    summary = validate_r2v_traffic_artifact(weighted_rows)
+
+    assert summary["generative_backends"] == ["feature_density_proxy"]
+    assert all(
+        row["metadata"]["r2v_generative_backend"] == "feature_density_proxy"
+        for row in weighted_rows
+    )
+
+
+def test_weights_plus_repaired_appends_admitted_repaired_transition(tmp_path: Path):
+    transitions_path = tmp_path / "transitions.jsonl"
+    repaired = _transition("t1_repaired", [7.0, 7.0], [7.5, 7.5], value_delta=2.5)
+    rows = [
+        _transition("t0", [0.0, 0.0], [0.0, 0.0], value_delta=-0.1),
+        _transition(
+            "t1",
+            [8.0, 8.0],
+            [8.0, 8.0],
+            value_delta=2.0,
+            metadata={"r2v_repaired_transition": repaired},
+        ),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+    weighted_path = tmp_path / "weighted_transitions.jsonl"
+
+    build_candidates_from_files(
+        transitions=[transitions_path],
+        output=tmp_path / "candidates.jsonl",
+        summary_output=tmp_path / "summary.json",
+        weighted_output=weighted_path,
+        config=R2VTrafficSelectorConfig(
+            admission_mode="weights_plus_repaired",
+            rare_quantile=0.5,
+            value_quantile=0.5,
+            support_min_quantile=0.0,
+            safety_min=-10.0,
+        ),
+    )
+
+    weighted_rows = _read_jsonl(weighted_path)
+    by_id = {row["transition_id"]: row for row in weighted_rows}
+
+    assert set(by_id) == {"t0", "t1", "t1_repaired"}
+    assert by_id["t1_repaired"]["metadata"]["r2v_admission_mode"] == "weights_plus_repaired"
+    assert by_id["t1_repaired"]["metadata"]["r2v_row_role"] == "repaired"
+    assert by_id["t1_repaired"]["metadata"]["r2v_repaired_from_transition_id"] == "t1"
+    assert by_id["t1_repaired"]["metadata"]["r2v_admitted"] is True
+    assert by_id["t1_repaired"]["metadata"]["r2v_traffic_schema_version"] == "r2v-traffic-artifact-v2"
+    assert validate_r2v_traffic_artifact(weighted_rows)["row_count"] == 3
+
+
+def test_weights_plus_repaired_requires_payload_for_admitted_candidate(tmp_path: Path):
+    transitions_path = tmp_path / "transitions.jsonl"
+    rows = [
+        _transition("t0", [0.0, 0.0], [0.0, 0.0], value_delta=-0.1),
+        _transition("t1", [8.0, 8.0], [8.0, 8.0], value_delta=2.0),
+    ]
+    transitions_path.write_text("\n".join(json.dumps(row, sort_keys=True) for row in rows), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires repaired transition"):
+        build_candidates_from_files(
+            transitions=[transitions_path],
+            output=tmp_path / "candidates.jsonl",
+            summary_output=tmp_path / "summary.json",
+            weighted_output=tmp_path / "weighted_transitions.jsonl",
+            config=R2VTrafficSelectorConfig(
+                admission_mode="weights_plus_repaired",
+                rare_quantile=0.5,
+                value_quantile=0.5,
+                support_min_quantile=0.0,
+                safety_min=-10.0,
+            ),
+        )
 
 
 def test_weighted_output_rejects_missing_transition_id(tmp_path: Path):
@@ -600,6 +1001,59 @@ def test_cli_accepts_repair_story_arguments(monkeypatch):
     assert args.repair_story == "not_val_to_val"
     assert args.source_gates_key == "metadata.before"
     assert args.final_gates_key == "metadata.after"
+
+
+def test_cli_accepts_repair_metadata_policy(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "build_r2v_candidates.py",
+            "--transitions",
+            "transitions.jsonl",
+            "--output",
+            "candidates.jsonl",
+            "--summary_output",
+            "summary.json",
+            "--repair_story",
+            "not_rare_to_val",
+            "--repair_metadata_policy",
+            "metadata_or_proxy",
+        ],
+    )
+
+    args = parse_args()
+
+    assert args.repair_metadata_policy == "metadata_or_proxy"
+
+
+def test_cli_accepts_admission_mode_and_repaired_transition_key(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "build_r2v_candidates.py",
+            "--transitions",
+            "transitions.jsonl",
+            "--output",
+            "candidates.jsonl",
+            "--summary_output",
+            "summary.json",
+            "--admission_mode",
+            "weights_plus_repaired",
+            "--admitted_weight",
+            "4.0",
+            "--repaired_transition_key",
+            "metadata.repaired",
+            "--repair_rejected_weight",
+            "0.25",
+        ],
+    )
+
+    args = parse_args()
+
+    assert args.admission_mode == "weights_plus_repaired"
+    assert args.admitted_weight == 4.0
+    assert args.repaired_transition_key == "metadata.repaired"
+    assert args.repair_rejected_weight == 0.25
 
 
 def test_candidate_builder_cli_writes_weighted_output_and_summary(tmp_path: Path, monkeypatch):

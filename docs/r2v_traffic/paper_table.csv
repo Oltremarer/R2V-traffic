@@ -1,0 +1,22 @@
+paper_id,year,venue_status,title,axis,url_or_doi,evidence_level,relevance
+P01,2019,KDD,PressLight,traffic_baseline,https://doi.org/10.1145/3292500.3330949,direct,Max-pressure-grounded RL baseline and reward/state design reference
+P02,2019,CIKM,CoLight,traffic_baseline,https://doi.org/10.1145/3357384.3357902,direct,Graph-attention multi-agent traffic signal control baseline
+P03,2019,CIKM,FRAP,traffic_baseline,https://arxiv.org/abs/1905.04722,direct,Phase competition and generalization baseline
+P04,2019,WWW/ACM,CityFlow,simulator_benchmark,https://arxiv.org/abs/1905.05217,direct,City-scale simulator used by many TSC works
+P05,2021,NeurIPS Datasets,RL Benchmarks for TSC,benchmark,https://datasets-benchmarks-proceedings.neurips.cc/paper_files/paper/2021/hash/f0935e4cd5920aa6c7c996a5ee53a70f-Abstract-round1.html,direct,Shows TSC results are sensitive to sensing/layout assumptions
+P06,2022,arXiv,LibSignal,benchmark,https://arxiv.org/abs/2211.10649,direct,Cross-simulator unified metrics and baseline library
+P07,2022,arXiv,Offline RL for Road Traffic Control,offline_tsc,https://arxiv.org/abs/2201.02381,direct,Pessimistic model-based offline traffic control
+P08,2023,arXiv,DataLight,offline_tsc,https://arxiv.org/abs/2303.10828,direct,Offline data-driven TSC and deployment concerns
+P09,2023,arXiv,D2TSC,offline_tsc,https://arxiv.org/abs/2311.15920,direct,Simulator-free realistic TSC with inferred rewards
+P10,2023,arXiv,DTLight and DTRL,offline_to_online_tsc,https://arxiv.org/abs/2312.07795,direct,Offline TSC datasets plus online adaptation
+P11,2024,KDD,CrossLight,offline_to_online_tsc,https://doi.org/10.1145/3637528.3671927,direct,Cross-city offline meta-training plus online fine-tuning
+P12,2024,arXiv,OffLight,offline_marl_tsc,https://arxiv.org/abs/2411.06601,direct,Heterogeneous offline MARL with importance and return-based sampling
+P13,2025,arXiv,PLight/PRLight,transfer_tsc,https://arxiv.org/html/2503.08728v1,direct,Model-based pretraining and policy reuse for transfer
+P14,2025,arXiv,T-REX robustness benchmark,robust_tsc,https://arxiv.org/abs/2506.13836,direct,Incident-distribution-shift benchmark and robustness metrics
+P15,2025,arXiv,AMM observation mismatch,transfer_tsc,https://arxiv.org/abs/2501.02548,direct,Observation-adapter and dynamics model framing
+P16,2026,arXiv,CFLight,safe_tsc,https://arxiv.org/html/2512.09368,direct,Counterfactual trajectories for safety-efficiency TSC
+P17,2015,ICLR,Prioritized Experience Replay,replay,https://arxiv.org/abs/1511.05952,indirect,Priority can help replay but priority is not rarity
+P18,2017,NeurIPS,Hindsight Experience Replay,replay_sparse_reward,https://arxiv.org/abs/1707.01495,indirect,Sparse or zero rewards can still be useful signals
+P19,2023,ICML,RLPD,offline_to_online_rl,https://arxiv.org/abs/2302.02948,indirect,Practical use of offline data in online replay buffers
+P20,2023,NeurIPS,SynthER,generative_replay,https://openreview.net/forum?id=6jNQ1AY1Uf,indirect,Diffusion upsampling for replay as candidate source
+P21,2024,NeurIPS,GTA,generative_augmentation,https://openreview.net/forum?id=kZpNDbZrzy,indirect,Diffusion trajectory augmentation with return guidance

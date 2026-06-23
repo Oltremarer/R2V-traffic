@@ -1,0 +1,15 @@
+claim_id,claim,source_ids,evidence_level,implication
+C01,Rare transitions are not automatically valuable,P17;local_selector,inference,Keep separate rare and value gates and report rare-only ablations
+C02,Zero or low immediate reward is not corrupted data,P18,indirect,Do not filter traffic samples solely by zero reward
+C03,Traffic reward proxies can be fragile and must be tied to real metrics,P01;P05;P06,direct,Rank final controllers by travel queue delay throughput reward not artifact status
+C04,Strong TSC baselines must include max-pressure and learned multi-agent methods,P01;P02;P03,direct,Compare against MaxPressure PressLight CoLight FRAP-style families where available
+C05,Simulator and sensing assumptions affect reported TSC performance,P04;P05;P06,direct,Group results by city network simulator and observation set
+C06,Offline TSC is motivated by safety and interaction cost,P07;P08;P09;P12,direct,Emphasize replay reuse and data efficiency rather than unsafe online exploration
+C07,Offline-to-online TSC is an active frontier,P10;P11,direct,Position R2V-Traffic near data-efficient adaptation work
+C08,Generative replay can improve RL data efficiency but is not traffic admission proof,P20;P21,indirect,Use diffusion as proposal source and let gates decide admission
+C09,Support and OOD control are central in offline RL,P07;P14;P15,direct,Keep support and dynamics gates mandatory in main path
+C10,Safety and robustness are distinct from efficiency,P14;P16,direct,Report safety/integrity separately from travel time when available
+C11,Heterogeneous behavior policies matter in offline MARL TSC,P12,direct,Record behavior source or policy_id and use behavior-aware splits
+C12,Traffic status artifacts are not performance metrics,local_result_aggregation;local_paper_manifest,local_code_policy,Keep artifact validation completion status and traffic metrics in separate tables
+C13,Proxy smoke artifacts are not paper diffusion evidence,local_score_builder;local_readiness;local_paper_manifest,local_code_policy,Require real paper-eligible diffusion score or repair artifacts for final claims
+C14,R2V weights affect offline replay or pair sampling rather than PPO rollout storage,local_build_pairs;local_ppo_buffer,local_code_policy,Do not claim PPO Bellman or GAE target changes from R2V weighted JSONL artifacts

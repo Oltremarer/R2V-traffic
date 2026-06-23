@@ -11,6 +11,10 @@ from pareto.r2v.artifact_validation import (
     validate_weighted_transition_rows,
 )
 from pareto.r2v.generative_scorer import GenerativeScoreRow, load_generative_score_artifact
+from pareto.r2v.traffic_artifact_schema import (
+    upgrade_weighted_row_to_v2_metadata,
+    validate_r2v_traffic_artifact,
+)
 
 
 DEFAULT_TRAFFIC_UTILITY_WEIGHTS = {
@@ -22,6 +26,9 @@ DEFAULT_TRAFFIC_UTILITY_WEIGHTS = {
 
 SUPPORTED_VALUE_MODES = {"objective_delta", "frozen_target_utility"}
 SUPPORTED_REPAIR_STORIES = {"none", "not_val_to_val", "not_rare_to_val"}
+SUPPORTED_REPAIR_METADATA_POLICIES = {"require_metadata", "metadata_or_proxy"}
+SUPPORTED_GATE_VARIANTS = {"full", "no_support", "no_ood", "no_dynamics"}
+SUPPORTED_ADMISSION_MODES = {"weights_only", "weights_plus_repaired"}
 REQUIRED_GATE_KEYS = ("rare", "value", "support", "safety")
 _MISSING = object()
 
@@ -37,6 +44,7 @@ class R2VTrafficSelectorConfig:
     env_reward_weight: float = 0.0
     density_neighbors: int = 1
     base_weight: float = 1.0
+    admitted_weight: float | None = None
     admitted_weight_bonus: float = 2.0
     max_weight: float = 5.0
     utility_weights: dict[str, float] | None = None
@@ -44,14 +52,25 @@ class R2VTrafficSelectorConfig:
     score_artifact_id_key: str = "transition_id"
     score_artifact_backend: str | None = None
     repair_story: str = "none"
+    repair_metadata_policy: str = "require_metadata"
+    gate_variant: str = "full"
+    admission_mode: str = "weights_only"
+    repair_rejected_weight: float = 2.0
     source_gates_key: str = "metadata.r2v_source_gates"
     final_gates_key: str = "metadata.r2v_final_gates"
+    repaired_transition_key: str = "metadata.r2v_repaired_transition"
 
     def validate(self) -> None:
         if self.value_mode not in SUPPORTED_VALUE_MODES:
             raise ValueError(f"value_mode must be one of {sorted(SUPPORTED_VALUE_MODES)}")
         if self.repair_story not in SUPPORTED_REPAIR_STORIES:
             raise ValueError(f"repair_story must be one of {sorted(SUPPORTED_REPAIR_STORIES)}")
+        if self.repair_metadata_policy not in SUPPORTED_REPAIR_METADATA_POLICIES:
+            raise ValueError(f"repair_metadata_policy must be one of {sorted(SUPPORTED_REPAIR_METADATA_POLICIES)}")
+        if self.gate_variant not in SUPPORTED_GATE_VARIANTS:
+            raise ValueError(f"gate_variant must be one of {sorted(SUPPORTED_GATE_VARIANTS)}")
+        if self.admission_mode not in SUPPORTED_ADMISSION_MODES:
+            raise ValueError(f"admission_mode must be one of {sorted(SUPPORTED_ADMISSION_MODES)}")
         if self.value_mode == "frozen_target_utility" and abs(float(self.env_reward_weight)) > 1e-12:
             raise ValueError("frozen_target_utility mode requires env_reward_weight=0.0")
         for name, value in (
@@ -65,8 +84,12 @@ class R2VTrafficSelectorConfig:
             raise ValueError("base_weight must be positive")
         if self.density_neighbors < 1:
             raise ValueError("density_neighbors must be at least 1")
+        if self.admitted_weight is not None and self.admitted_weight <= 0:
+            raise ValueError("admitted_weight must be positive when provided")
         if self.admitted_weight_bonus < 0:
             raise ValueError("admitted_weight_bonus must be non-negative")
+        if self.repair_rejected_weight <= 0:
+            raise ValueError("repair_rejected_weight must be positive")
         if self.max_weight < self.base_weight:
             raise ValueError("max_weight must be at least base_weight")
         if self.score_artifact_path is not None and str(self.score_artifact_path).strip() == "":
@@ -77,6 +100,8 @@ class R2VTrafficSelectorConfig:
             raise ValueError("source_gates_key must be non-empty")
         if str(self.final_gates_key).strip() == "":
             raise ValueError("final_gates_key must be non-empty")
+        if str(self.repaired_transition_key).strip() == "":
+            raise ValueError("repaired_transition_key must be non-empty")
         self.resolved_utility_weights()
 
     def resolved_utility_weights(self) -> dict[str, float]:
@@ -132,7 +157,8 @@ def select_r2v_candidates(
         }
         repair_status = _repair_story_status(row, computed_gates, cfg)
         gates = repair_status["gates"]
-        admitted = all(gates.values()) and bool(repair_status["repair_story_match"])
+        active_gates = _active_gate_keys(cfg.gate_variant)
+        admitted = all(gates[name] for name in active_gates) and bool(repair_status["repair_story_match"])
         admission_score_components = _admission_score_components(
             rarity=rarity_scores[idx],
             value=value_scores[idx],
@@ -168,11 +194,16 @@ def select_r2v_candidates(
                 "admission_score_components": admission_score_components,
                 "gates": gates,
                 "admitted": admitted,
+                "gate_variant": cfg.gate_variant,
+                "active_gates": list(active_gates),
                 "repair_story": cfg.repair_story,
+                "repair_metadata_policy": cfg.repair_metadata_policy,
                 "repair_story_match": repair_status["repair_story_match"],
                 "source_gates": repair_status["source_gates"],
                 "final_gates": repair_status["final_gates"],
                 "gate_source": repair_status["gate_source"],
+                "repaired_transition": score_sources[idx].get("repaired_transition"),
+                "repaired_transition_source": score_sources[idx].get("repaired_transition_source"),
                 "sample_weight": cfg.base_weight,
                 "thresholds": dict(thresholds),
                 "debug": {
@@ -189,6 +220,9 @@ def select_r2v_candidates(
                     "rare_is_not_value": True,
                     "computed_gates": dict(computed_gates),
                     "repair_story": cfg.repair_story,
+                    "repair_metadata_policy": cfg.repair_metadata_policy,
+                    "gate_variant": cfg.gate_variant,
+                    "active_gates": list(active_gates),
                     "repair_story_match": repair_status["repair_story_match"],
                     "source_gates": repair_status["source_gates"],
                     "final_gates": repair_status["final_gates"],
@@ -227,6 +261,14 @@ def apply_candidate_weights(
         metadata["r2v_schema_version"] = "r2v-tsc-weighted-transition-v1"
         metadata["r2v_value_mode"] = cfg.value_mode
         metadata["r2v_repair_story"] = cfg.repair_story
+        metadata["r2v_repair_metadata_policy"] = cfg.repair_metadata_policy
+        metadata["r2v_admission_mode"] = cfg.admission_mode
+        metadata["r2v_row_role"] = "source"
+        metadata["r2v_repaired_from_transition_id"] = None
+        metadata["r2v_proposal_source"] = None
+        metadata["r2v_repair_rejected"] = False
+        metadata["r2v_score_artifact_path"] = str(cfg.score_artifact_path) if cfg.score_artifact_path else None
+        metadata["r2v_score_artifact_backend"] = _traffic_artifact_backend(cfg)
         metadata["r2v_source_summary"] = summary_output
         metadata["r2v_source_summary_schema_version"] = summary_schema
         if candidate is None:
@@ -235,6 +277,8 @@ def apply_candidate_weights(
             metadata["r2v_candidate_model"] = cfg.candidate_model
             metadata["r2v_admission_score"] = 0.0
             metadata["r2v_candidate_rank"] = None
+            metadata["r2v_gate_variant"] = cfg.gate_variant
+            metadata["r2v_active_gates"] = list(_active_gate_keys(cfg.gate_variant))
             metadata["r2v_gates"] = {
                 "rare": False,
                 "value": False,
@@ -258,6 +302,11 @@ def apply_candidate_weights(
             metadata["r2v_support_score"] = float(candidate.get("support_score", 0.0))
             metadata["r2v_safety_score"] = float(candidate.get("safety_score", 0.0))
             metadata["r2v_repair_story"] = str(candidate.get("repair_story", cfg.repair_story))
+            metadata["r2v_repair_metadata_policy"] = str(
+                candidate.get("repair_metadata_policy", cfg.repair_metadata_policy)
+            )
+            metadata["r2v_gate_variant"] = str(candidate.get("gate_variant", cfg.gate_variant))
+            metadata["r2v_active_gates"] = list(candidate.get("active_gates") or _active_gate_keys(cfg.gate_variant))
             metadata["r2v_repair_story_match"] = bool(candidate.get("repair_story_match", False))
             metadata["r2v_source_gates"] = candidate.get("source_gates")
             metadata["r2v_final_gates"] = candidate.get("final_gates")
@@ -265,8 +314,129 @@ def apply_candidate_weights(
             metadata["r2v_gate_source"] = str(candidate.get("gate_source", "computed"))
         copied["metadata"] = metadata
         weighted_rows.append(copied)
+    if cfg.admission_mode == "weights_plus_repaired":
+        weighted_rows.extend(
+            _repaired_weighted_rows(
+                transition_rows,
+                candidate_by_transition,
+                cfg=cfg,
+                summary_schema=summary_schema,
+                summary_output=summary_output,
+            )
+        )
     validate_weighted_transition_rows(weighted_rows)
-    return weighted_rows
+    traffic_rows = [
+        upgrade_weighted_row_to_v2_metadata(
+            row,
+            gate_variant=cfg.gate_variant,
+            generative_backend=_traffic_artifact_backend(cfg),
+            admission_mode=cfg.admission_mode,
+        )
+        for row in weighted_rows
+    ]
+    validate_r2v_traffic_artifact(traffic_rows)
+    return traffic_rows
+
+
+def _repaired_weighted_rows(
+    transition_rows: list[dict[str, Any]],
+    candidate_by_transition: dict[str, dict[str, Any]],
+    *,
+    cfg: R2VTrafficSelectorConfig,
+    summary_schema: Any,
+    summary_output: str | None,
+) -> list[dict[str, Any]]:
+    repaired_rows: list[dict[str, Any]] = []
+    for source_row in transition_rows:
+        transition_id = str(source_row.get("transition_id"))
+        candidate = candidate_by_transition.get(transition_id)
+        if candidate is None:
+            continue
+        admitted = bool(candidate.get("admitted", False))
+        repaired_raw, proposal_source = _resolve_repaired_transition_payload(source_row, candidate, cfg=cfg)
+        if repaired_raw is _MISSING:
+            if not admitted:
+                continue
+            raise ValueError(
+                "admission_mode='weights_plus_repaired' requires repaired transition "
+                f"from score artifact or at {cfg.repaired_transition_key!r} "
+                f"for admitted transition_id {transition_id!r}"
+            )
+        if repaired_raw is None:
+            if not admitted:
+                continue
+            raise ValueError(
+                "admission_mode='weights_plus_repaired' requires repaired transition "
+                f"from score artifact or at {cfg.repaired_transition_key!r} "
+                f"for admitted transition_id {transition_id!r}"
+            )
+        if not isinstance(repaired_raw, dict):
+            raise ValueError(
+                f"{cfg.repaired_transition_key!r} must be an object for transition_id {transition_id!r}"
+            )
+        repaired = dict(repaired_raw)
+        repaired_transition_id = str(repaired.get("transition_id") or "")
+        repaired_sample_id = str(repaired.get("sample_id") or "")
+        if not repaired_transition_id:
+            raise ValueError(
+                "admission_mode='weights_plus_repaired' repaired transition missing transition_id "
+                f"for source transition_id {transition_id!r}"
+            )
+        if not repaired_sample_id:
+            raise ValueError(
+                "admission_mode='weights_plus_repaired' repaired transition missing sample_id "
+                f"for source transition_id {transition_id!r}"
+            )
+        metadata = dict(repaired.get("metadata") or {})
+        metadata["r2v_schema_version"] = "r2v-tsc-weighted-transition-v1"
+        metadata["r2v_value_mode"] = cfg.value_mode
+        metadata["r2v_repair_story"] = str(candidate.get("repair_story", cfg.repair_story))
+        metadata["r2v_repair_metadata_policy"] = str(
+            candidate.get("repair_metadata_policy", cfg.repair_metadata_policy)
+        )
+        metadata["r2v_admission_mode"] = cfg.admission_mode
+        metadata["r2v_row_role"] = "repaired" if admitted else "repair_rejected"
+        metadata["r2v_repaired_from_transition_id"] = transition_id
+        metadata["r2v_proposal_source"] = str(proposal_source)
+        metadata["r2v_score_artifact_path"] = str(cfg.score_artifact_path) if cfg.score_artifact_path else None
+        metadata["r2v_score_artifact_backend"] = _traffic_artifact_backend(cfg)
+        metadata["r2v_source_summary"] = summary_output
+        metadata["r2v_source_summary_schema_version"] = summary_schema
+        metadata["r2v_sample_weight"] = float(candidate["sample_weight"]) if admitted else float(cfg.repair_rejected_weight)
+        metadata["r2v_admitted"] = admitted
+        metadata["r2v_repair_rejected"] = not admitted
+        metadata["r2v_candidate_model"] = candidate["candidate_model"]
+        metadata["r2v_admission_score"] = float(candidate["admission_score"])
+        metadata["r2v_candidate_rank"] = candidate.get("candidate_rank")
+        metadata["r2v_gates"] = dict(candidate.get("gates") or {})
+        metadata["r2v_rarity_score"] = float(candidate.get("rarity_score", 0.0))
+        metadata["r2v_value_score"] = float(candidate.get("value_score", 0.0))
+        metadata["r2v_support_score"] = float(candidate.get("support_score", 0.0))
+        metadata["r2v_safety_score"] = float(candidate.get("safety_score", 0.0))
+        metadata["r2v_gate_variant"] = str(candidate.get("gate_variant", cfg.gate_variant))
+        metadata["r2v_active_gates"] = list(candidate.get("active_gates") or _active_gate_keys(cfg.gate_variant))
+        metadata["r2v_repair_story_match"] = bool(candidate.get("repair_story_match", False))
+        metadata["r2v_source_gates"] = candidate.get("source_gates")
+        metadata["r2v_final_gates"] = candidate.get("final_gates")
+        metadata["r2v_computed_gates"] = dict(candidate.get("debug", {}).get("computed_gates") or {})
+        metadata["r2v_gate_source"] = str(candidate.get("gate_source", "metadata_repaired_transition"))
+        repaired["metadata"] = metadata
+        repaired_rows.append(repaired)
+    return repaired_rows
+
+
+def _resolve_repaired_transition_payload(
+    source_row: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    cfg: R2VTrafficSelectorConfig,
+) -> tuple[Any, str]:
+    repaired_raw = candidate.get("repaired_transition", _MISSING)
+    proposal_source = candidate.get("repaired_transition_source") or "score_artifact.repaired_transition"
+    if repaired_raw is _MISSING or repaired_raw is None:
+        repaired_raw = get_path_value(source_row, cfg.repaired_transition_key, default=_MISSING)
+        proposal_source = cfg.repaired_transition_key
+    return repaired_raw, str(proposal_source)
 
 
 def _transition_feature_vector(row: dict[str, Any]) -> list[float]:
@@ -357,6 +527,9 @@ def _resolve_candidate_scores(
 def _score_row_source(score_row: GenerativeScoreRow) -> dict[str, Any]:
     source = dict(score_row.source)
     source["transition_id"] = score_row.transition_id
+    if score_row.repaired_transition is not None:
+        source["repaired_transition"] = dict(score_row.repaired_transition)
+        source["repaired_transition_source"] = "score_artifact.repaired_transition"
     return source
 
 
@@ -414,12 +587,16 @@ def _repair_story_status(
     transition_id = row.get("transition_id")
     source_raw = get_path_value(row, cfg.source_gates_key, default=_MISSING)
     final_raw = get_path_value(row, cfg.final_gates_key, default=_MISSING)
-    if source_raw is _MISSING:
+    source_missing = source_raw is _MISSING
+    final_missing = final_raw is _MISSING
+    if source_missing and final_missing and cfg.repair_metadata_policy == "metadata_or_proxy":
+        return _proxy_repair_story_status(computed_gates, cfg)
+    if source_missing:
         raise ValueError(
             f"repair_story={cfg.repair_story!r} requires source gates at "
             f"{cfg.source_gates_key!r} for transition_id {transition_id!r}"
         )
-    if final_raw is _MISSING:
+    if final_missing:
         raise ValueError(
             f"repair_story={cfg.repair_story!r} requires final gates at "
             f"{cfg.final_gates_key!r} for transition_id {transition_id!r}"
@@ -443,6 +620,29 @@ def _repair_story_status(
     }
 
 
+def _proxy_repair_story_status(
+    computed_gates: dict[str, bool],
+    cfg: R2VTrafficSelectorConfig,
+) -> dict[str, Any]:
+    source_gates = dict(computed_gates)
+    final_gates = dict(computed_gates)
+    if cfg.repair_story == "not_val_to_val":
+        source_gates["value"] = False
+        story_match = final_gates["value"] is True
+    elif cfg.repair_story == "not_rare_to_val":
+        source_gates["rare"] = False
+        story_match = final_gates["value"] is True
+    else:
+        raise ValueError(f"unsupported repair_story {cfg.repair_story!r}")
+    return {
+        "gates": final_gates,
+        "source_gates": source_gates,
+        "final_gates": final_gates,
+        "repair_story_match": bool(story_match),
+        "gate_source": "computed_proxy_repair_metadata",
+    }
+
+
 def _coerce_gate_map(value: Any, *, label: str, transition_id: Any) -> dict[str, bool]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object of boolean gates for transition_id {transition_id!r}")
@@ -458,6 +658,24 @@ def _coerce_gate_map(value: Any, *, label: str, transition_id: Any) -> dict[str,
             )
         gates[name] = raw_value
     return gates
+
+
+def _active_gate_keys(gate_variant: str) -> tuple[str, ...]:
+    if gate_variant not in SUPPORTED_GATE_VARIANTS:
+        raise ValueError(f"gate_variant must be one of {sorted(SUPPORTED_GATE_VARIANTS)}")
+    if gate_variant == "no_support":
+        return ("value", "safety")
+    if gate_variant == "no_ood":
+        return ("support", "safety")
+    if gate_variant == "no_dynamics":
+        return ("value", "support")
+    return ("value", "support", "safety")
+
+
+def _traffic_artifact_backend(cfg: R2VTrafficSelectorConfig) -> str:
+    if cfg.score_artifact_path is None:
+        return str(cfg.candidate_model)
+    return str(cfg.score_artifact_backend or "generative_score_artifact")
 
 
 def _utility(objectives: dict[str, Any], cfg: R2VTrafficSelectorConfig) -> float:
@@ -519,7 +737,9 @@ def _rank_and_weight(
     rank_by_idx = {idx: rank + 1 for rank, idx in enumerate(ranked_indices)}
     for idx, candidate in enumerate(candidates):
         candidate["candidate_rank"] = rank_by_idx[idx]
-        if candidate["admitted"] and max_admission > 0.0:
+        if candidate["admitted"] and cfg.admitted_weight is not None:
+            candidate["sample_weight"] = float(cfg.admitted_weight)
+        elif candidate["admitted"] and max_admission > 0.0:
             bonus = cfg.admitted_weight_bonus * (candidate["admission_score"] / max_admission)
             candidate["sample_weight"] = min(cfg.max_weight, cfg.base_weight + bonus)
     return sorted(candidates, key=lambda row: row["candidate_rank"])
@@ -540,6 +760,13 @@ def _summary(
         gate_failure_counts[name] = sum(1 for row in candidates if not row.get("gates", {}).get(name))
     weights = [float(row.get("sample_weight", 1.0)) for row in candidates]
     repair_story_match_count = sum(1 for row in candidates if row.get("repair_story_match"))
+    gate_sources = {str(row.get("gate_source", "")) for row in candidates if row.get("gate_source")}
+    if not gate_sources:
+        gate_source = "metadata_final_gates" if cfg.repair_story != "none" else "computed"
+    elif len(gate_sources) == 1:
+        gate_source = next(iter(gate_sources))
+    else:
+        gate_source = "mixed"
     return {
         "schema_version": "r2v-tsc-candidate-summary-v1",
         "record_count": len(candidates),
@@ -549,10 +776,14 @@ def _summary(
         "candidate_model": cfg.candidate_model,
         "value_mode": cfg.value_mode,
         "repair_story": cfg.repair_story,
+        "repair_metadata_policy": cfg.repair_metadata_policy,
+        "gate_variant": cfg.gate_variant,
+        "admission_mode": cfg.admission_mode,
+        "active_gates": list(_active_gate_keys(cfg.gate_variant)),
         "repair_story_required": cfg.repair_story != "none",
         "repair_story_match_count": int(repair_story_match_count),
         "repair_story_match_rate": float(repair_story_match_count / len(candidates)) if candidates else 0.0,
-        "gate_source": "metadata_final_gates" if cfg.repair_story != "none" else "computed",
+        "gate_source": gate_source,
         "score_source": score_source or {
             "kind": "feature_density_proxy",
             "backend": cfg.candidate_model,

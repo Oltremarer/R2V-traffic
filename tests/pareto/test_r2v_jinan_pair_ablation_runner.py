@@ -22,6 +22,8 @@ def test_command_plan_keeps_baseline_and_r2v_differing_only_by_sampling(tmp_path
         epochs=3,
         device="cuda",
         repair_story="not_val_to_val",
+        r2v_admitted_weight=4.0,
+        r2v_repair_rejected_weight=0.25,
         run_bounded_ppo=False,
     )
 
@@ -48,8 +50,19 @@ def test_command_plan_keeps_baseline_and_r2v_differing_only_by_sampling(tmp_path
     build_candidates = next(item for item in plan if item["name"] == "build_r2v_weighted_transitions")
     assert "--repair_story" in build_candidates["argv"]
     assert build_candidates["argv"][build_candidates["argv"].index("--repair_story") + 1] == "not_val_to_val"
+    assert "--admission_mode" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--admission_mode") + 1] == "weights_only"
+    assert "--admitted_weight" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--admitted_weight") + 1] == "4.0"
+    assert "--admitted_weight_bonus" not in build_candidates["argv"]
+    assert "--repair_rejected_weight" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--repair_rejected_weight") + 1] == "0.25"
+    assert "--repair_metadata_policy" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--repair_metadata_policy") + 1] == "metadata_or_proxy"
     assert "--source_gates_key" in build_candidates["argv"]
     assert "--final_gates_key" in build_candidates["argv"]
+    assert "--score_artifact" not in build_candidates["argv"]
+    assert "--score_artifact_backend" not in build_candidates["argv"]
 
     baseline_train_cmd = next(item for item in plan if item["name"] == "train_baseline_uniform_film_scalar")
     r2v_train_cmd = next(item for item in plan if item["name"] == "train_r2v_full_r2v_film_scalar")
@@ -92,6 +105,27 @@ def test_command_plan_pairs_each_er_baseline_with_r2v_overlay(tmp_path: Path):
     assert "--r2v_weighted_transitions" not in baseline_train["argv"]
     assert r2v_train["argv"][r2v_train["argv"].index("--r2v_sampling_mode") + 1] == "full_r2v"
     assert "--r2v_weighted_transitions" in r2v_train["argv"]
+
+
+def test_command_plan_passes_backend_only_with_score_artifact(tmp_path: Path):
+    score_artifact = tmp_path / "diffusion_scores.jsonl"
+    config = R2VJinanAblationConfig(
+        python_bin="/env/bin/python",
+        records_root=Path("data/pareto_records_split_norm/jinan/paper_final"),
+        transition_inputs=[Path("records/jinan/random/seed0/transitions_raw.jsonl")],
+        normalizer_path=Path("data/normalizers/jinan/objective_norm_paper_final.json"),
+        output_root=tmp_path / "run",
+        r2v_artifact_path=str(score_artifact),
+        run_bounded_ppo=False,
+    )
+
+    plan = command_plan_as_dicts(build_command_plan(config))
+    build_candidates = next(item for item in plan if item["name"] == "build_r2v_weighted_transitions")
+
+    assert "--score_artifact" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--score_artifact") + 1] == str(score_artifact)
+    assert "--score_artifact_backend" in build_candidates["argv"]
+    assert build_candidates["argv"][build_candidates["argv"].index("--score_artifact_backend") + 1] == "diffusion"
 
 
 def test_command_plan_adds_bounded_ppo_commands_when_requested(tmp_path: Path):

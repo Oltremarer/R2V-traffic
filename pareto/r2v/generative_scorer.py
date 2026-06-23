@@ -15,6 +15,7 @@ class GenerativeScoreRow:
     transition_id: str
     rarity_score: float
     support_score: float
+    repaired_transition: dict[str, Any] | None
     source: dict[str, Any]
 
 
@@ -37,6 +38,7 @@ def load_generative_score_artifact(
             transition_id=transition_id,
             rarity_score=rarity_score,
             support_score=support_score,
+            repaired_transition=_repaired_transition_payload(row, row_idx=idx),
             source={
                 "kind": "score_artifact",
                 "backend": backend or row.get("backend") or row.get("candidate_model") or "generative",
@@ -45,6 +47,8 @@ def load_generative_score_artifact(
                 "model_checkpoint": row.get("model_checkpoint"),
                 "config_hash": row.get("config_hash"),
                 "normalization_id": row.get("normalization_id"),
+                "adapter": row.get("adapter"),
+                "paper_claim_eligible": row.get("paper_claim_eligible"),
             },
         )
     summary = {
@@ -56,6 +60,20 @@ def load_generative_score_artifact(
         "score_count": len(score_rows),
     }
     return score_rows, summary
+
+
+def _repaired_transition_payload(row: dict[str, Any], *, row_idx: int) -> dict[str, Any] | None:
+    if "repaired_transition" not in row:
+        return None
+    payload = row["repaired_transition"]
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError(f"repaired_transition must be an object in score artifact row {row_idx}")
+    for field in ("transition_id", "sample_id"):
+        if field not in payload or payload[field] is None or str(payload[field]).strip() == "":
+            raise ValueError(f"repaired_transition missing {field} in score artifact row {row_idx}")
+    return dict(payload)
 
 
 def _load_json_rows(path: Path) -> list[dict[str, Any]]:

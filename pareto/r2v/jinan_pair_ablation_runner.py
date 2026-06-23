@@ -57,6 +57,17 @@ class R2VJinanAblationConfig:
     transition_inputs: list[Path] = field(default_factory=list)
     normalizer_path: Path = Path("data/normalizers/jinan/objective_norm_paper_final.json")
     output_root: Path = Path("records/r2v_tsc_runs/jinan_pair_ablation")
+    r2v: str = "paired"
+    r2v_mode: str = "traffic"
+    generative_backend: str = "diffusion"
+    gate_variant: str = "full"
+    r2v_artifact_path: str = ""
+    r2v_admitted_weight: float = 2.0
+    r2v_repair_rejected_weight: float = 2.0
+    r2v_admission_mode: str = "weights_only"
+    support_gate: str = "on"
+    ood_gate: str = "on"
+    dynamics_gate: str = "on"
     seed: int = 0
     device: str = "cuda"
     epochs: int = 20
@@ -73,6 +84,7 @@ class R2VJinanAblationConfig:
     support_min_quantile: float = 0.02
     safety_min: float = -1.0
     repair_story: str = "none"
+    repair_metadata_policy: str = "metadata_or_proxy"
     source_gates_key: str = "metadata.r2v_source_gates"
     final_gates_key: str = "metadata.r2v_final_gates"
     run_bounded_ppo: bool = False
@@ -132,36 +144,41 @@ def command_plan_as_dicts(commands: Iterable[CommandSpec]) -> list[dict[str, Any
     ]
 
 
-def _method_specs(config: R2VJinanAblationConfig) -> tuple[MethodSpec, MethodSpec]:
+def _method_specs(config: R2VJinanAblationConfig) -> tuple[MethodSpec, ...]:
     baseline_name = "baseline_uniform" if config.er_baseline_mode == "uniform" else f"baseline_{config.er_baseline_mode}"
     r2v_name = (
         "r2v_full_r2v"
         if config.er_baseline_mode == "uniform" and config.r2v_sampling_mode == "full_r2v"
         else f"r2v_{config.er_baseline_mode}_{config.r2v_sampling_mode}"
     )
-    return (
-        MethodSpec(
-            name=baseline_name,
-            er_baseline_mode=config.er_baseline_mode,
-            r2v_sampling_mode="off",
-            uses_r2v=False,
-        ),
-        MethodSpec(
-            name=r2v_name,
-            er_baseline_mode=config.er_baseline_mode,
-            r2v_sampling_mode=config.r2v_sampling_mode,
-            uses_r2v=True,
-        ),
+    baseline = MethodSpec(
+        name=baseline_name,
+        er_baseline_mode=config.er_baseline_mode,
+        r2v_sampling_mode="off",
+        uses_r2v=False,
     )
+    r2v = MethodSpec(
+        name=r2v_name,
+        er_baseline_mode=config.er_baseline_mode,
+        r2v_sampling_mode=config.r2v_sampling_mode,
+        uses_r2v=True,
+    )
+    if config.r2v == "off":
+        return (baseline,)
+    if config.r2v == "on":
+        return (r2v,)
+    return (baseline, r2v)
 
 
-def _method_names(config: R2VJinanAblationConfig) -> tuple[str, str]:
+def _method_names(config: R2VJinanAblationConfig) -> tuple[str, ...]:
     return tuple(method.name for method in _method_specs(config))
 
 
 def build_command_plan(config: R2VJinanAblationConfig) -> list[CommandSpec]:
-    commands = [_build_r2v_candidates_command(config)]
     method_specs = _method_specs(config)
+    commands = []
+    if any(method.uses_r2v for method in method_specs):
+        commands.append(_build_r2v_candidates_command(config))
     for method in method_specs:
         for split in SPLITS:
             commands.append(_build_pairs_command(config, method, split))
@@ -238,7 +255,12 @@ def run(config: R2VJinanAblationConfig, *, dry_run: bool = False) -> dict[str, A
             "er_priority_key": config.er_priority_key,
             "er_r2v_combine": config.er_r2v_combine,
             "candidate_model": config.candidate_model,
+            "r2v": config.r2v,
+            "r2v_mode": config.r2v_mode,
+            "generative_backend": config.generative_backend,
+            "gate_variant": config.gate_variant,
             "repair_story": config.repair_story,
+            "r2v_admission_mode": config.r2v_admission_mode,
             "bounded_cityflow_ppo": bool(config.run_bounded_ppo),
             "claim_boundary": "engineering ablation run; not a final paper metric by itself",
         },
@@ -273,9 +295,7 @@ def run(config: R2VJinanAblationConfig, *, dry_run: bool = False) -> dict[str, A
 
 
 def _build_r2v_candidates_command(config: R2VJinanAblationConfig) -> CommandSpec:
-    return CommandSpec(
-        name="build_r2v_weighted_transitions",
-        argv=[
+    argv = [
             config.python_bin,
             "-m",
             "pareto.r2v.build_r2v_candidates",
@@ -299,11 +319,31 @@ def _build_r2v_candidates_command(config: R2VJinanAblationConfig) -> CommandSpec
             str(config.safety_min),
             "--repair_story",
             config.repair_story,
+            "--repair_metadata_policy",
+            config.repair_metadata_policy,
+            "--gate_variant",
+            config.gate_variant,
+            "--admission_mode",
+            config.r2v_admission_mode,
+            "--admitted_weight",
+            str(config.r2v_admitted_weight),
+            "--repair_rejected_weight",
+            str(config.r2v_repair_rejected_weight),
             "--source_gates_key",
             config.source_gates_key,
             "--final_gates_key",
             config.final_gates_key,
-        ],
+        ]
+    if config.r2v_artifact_path:
+        argv.extend([
+            "--score_artifact",
+            config.r2v_artifact_path,
+            "--score_artifact_backend",
+            config.generative_backend,
+        ])
+    return CommandSpec(
+        name="build_r2v_weighted_transitions",
+        argv=argv,
         cwd=ROOT,
     )
 
@@ -577,8 +617,18 @@ def _build_summary(config: R2VJinanAblationConfig, ppo_results: dict[str, Any]) 
         "er_baseline_mode": config.er_baseline_mode,
         "er_priority_key": config.er_priority_key,
         "er_r2v_combine": config.er_r2v_combine,
-        "candidate_summary": str(_artifact_root(config) / "r2v_summary.json"),
-        "weighted_transitions": str(_weighted_transitions_path(config)),
+        "r2v": config.r2v,
+        "r2v_mode": config.r2v_mode,
+        "generative_backend": config.generative_backend,
+        "gate_variant": config.gate_variant,
+        "repair_story": config.repair_story,
+        "r2v_admission_mode": config.r2v_admission_mode,
+        "candidate_summary": str(_artifact_root(config) / "r2v_summary.json")
+        if any(method.uses_r2v for method in _method_specs(config))
+        else None,
+        "weighted_transitions": str(_weighted_transitions_path(config))
+        if any(method.uses_r2v for method in _method_specs(config))
+        else None,
         "methods": method_summaries,
         "bounded_cityflow_ppo": bool(config.run_bounded_ppo),
         "claim_boundary": "Use diagnostics and bounded PPO as run-health evidence before claiming final traffic performance.",
@@ -689,6 +739,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--transition_glob", action="append", default=[DEFAULT_TRANSITION_GLOB])
     parser.add_argument("--normalizer_path", default="data/normalizers/jinan/objective_norm_paper_final.json")
     parser.add_argument("--output_root")
+    parser.add_argument("--r2v", choices=("on", "off", "paired"), default="paired")
+    parser.add_argument("--r2v_mode", choices=("traffic",), default="traffic")
+    parser.add_argument("--generative_backend", choices=("diffusion",), default="diffusion")
+    parser.add_argument("--gate_variant", choices=("full", "no_support", "no_ood", "no_dynamics"), default="full")
+    parser.add_argument("--r2v_output_dir", default=None)
+    parser.add_argument("--r2v_artifact_path", default="")
+    parser.add_argument("--r2v_admitted_weight", type=float, default=2.0)
+    parser.add_argument("--r2v_repair_rejected_weight", type=float, default=2.0)
+    parser.add_argument("--r2v_admission_mode", choices=("weights_only", "weights_plus_repaired"), default="weights_only")
+    parser.add_argument("--rare_fraction", type=float, default=None)
+    parser.add_argument("--support_gate", choices=("on", "off"), default="on")
+    parser.add_argument("--ood_gate", choices=("on", "off"), default="on")
+    parser.add_argument("--dynamics_gate", choices=("on", "off"), default="on")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--epochs", type=int, default=20)
@@ -714,6 +777,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--support_min_quantile", type=float, default=0.02)
     parser.add_argument("--safety_min", type=float, default=-1.0)
     parser.add_argument("--repair_story", choices=("none", "not_val_to_val", "not_rare_to_val"), default="none")
+    parser.add_argument(
+        "--repair_metadata_policy",
+        choices=("require_metadata", "metadata_or_proxy"),
+        default="metadata_or_proxy",
+    )
     parser.add_argument("--source_gates_key", default="metadata.r2v_source_gates")
     parser.add_argument("--final_gates_key", default="metadata.r2v_final_gates")
     parser.add_argument("--run_bounded_ppo", action="store_true")
@@ -726,15 +794,34 @@ def parse_args() -> argparse.Namespace:
 
 
 def config_from_args(args: argparse.Namespace) -> R2VJinanAblationConfig:
-    output_root = args.output_root
+    output_root = args.output_root or args.r2v_output_dir
     if output_root is None:
         output_root = f"records/r2v_tsc_runs/jinan_pair_ablation_{time.strftime('%Y%m%d_%H%M%S')}"
+    gate_variant = _resolve_gate_variant(args.gate_variant, args.support_gate, args.ood_gate, args.dynamics_gate)
+    rare_quantile = args.rare_quantile
+    if args.rare_fraction is not None:
+        if not 0.0 < float(args.rare_fraction) <= 1.0:
+            raise ValueError("rare_fraction must be in (0, 1]")
+        rare_quantile = 1.0 - float(args.rare_fraction)
+    if args.r2v == "on" and args.r2v_sampling_mode == "off":
+        raise ValueError("r2v_sampling_mode cannot be off when --r2v on")
     return R2VJinanAblationConfig(
         python_bin=args.python_bin,
         records_root=Path(args.records_root),
         transition_inputs=_resolve_transition_inputs(args.transition_input, args.transition_glob),
         normalizer_path=Path(args.normalizer_path),
         output_root=Path(output_root),
+        r2v=args.r2v,
+        r2v_mode=args.r2v_mode,
+        generative_backend=args.generative_backend,
+        gate_variant=gate_variant,
+        r2v_artifact_path=args.r2v_artifact_path,
+        r2v_admitted_weight=args.r2v_admitted_weight,
+        r2v_repair_rejected_weight=args.r2v_repair_rejected_weight,
+        r2v_admission_mode=args.r2v_admission_mode,
+        support_gate=args.support_gate,
+        ood_gate=args.ood_gate,
+        dynamics_gate=args.dynamics_gate,
         seed=args.seed,
         device=args.device,
         epochs=args.epochs,
@@ -746,11 +833,12 @@ def config_from_args(args: argparse.Namespace) -> R2VJinanAblationConfig:
         er_priority_key=args.er_priority_key,
         er_r2v_combine=args.er_r2v_combine,
         r2v_sampling_mode=args.r2v_sampling_mode,
-        rare_quantile=args.rare_quantile,
+        rare_quantile=rare_quantile,
         value_quantile=args.value_quantile,
         support_min_quantile=args.support_min_quantile,
         safety_min=args.safety_min,
         repair_story=args.repair_story,
+        repair_metadata_policy=args.repair_metadata_policy,
         source_gates_key=args.source_gates_key,
         final_gates_key=args.final_gates_key,
         run_bounded_ppo=args.run_bounded_ppo,
@@ -759,6 +847,29 @@ def config_from_args(args: argparse.Namespace) -> R2VJinanAblationConfig:
         bounded_ppo_steps=args.bounded_ppo_steps,
         force=args.force,
     )
+
+
+def _resolve_gate_variant(gate_variant: str, support_gate: str, ood_gate: str, dynamics_gate: str) -> str:
+    if gate_variant != "full":
+        return gate_variant
+    disabled = [
+        name
+        for name, state in (
+            ("support", support_gate),
+            ("ood", ood_gate),
+            ("dynamics", dynamics_gate),
+        )
+        if state == "off"
+    ]
+    if not disabled:
+        return "full"
+    if disabled == ["support"]:
+        return "no_support"
+    if disabled == ["ood"]:
+        return "no_ood"
+    if disabled == ["dynamics"]:
+        return "no_dynamics"
+    raise ValueError("only one gate can be disabled by support_gate/ood_gate/dynamics_gate in this runner")
 
 
 def main() -> None:

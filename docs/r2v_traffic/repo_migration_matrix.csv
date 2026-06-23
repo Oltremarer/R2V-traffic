@@ -1,0 +1,10 @@
+r2v_source,source_role,traffic_target,target_role,direct_reuse,adapter,rewrite,input_schema,output_schema,risk,test
+synther/adg/schema.py;synther/adg/data.py,D4RL transition matrix,pareto/data/schema.py::TransitionRecord,traffic JSONL transition,no,yes,no,D4RL arrays,TransitionRecord JSONL,schema mismatch,tests/pareto/test_schema.py
+synther/adg/detector.py,rare score and split,pareto/r2v/traffic_candidate_selector.py,candidate scoring,conceptual,yes,partial,transition matrix,candidate JSONL,rare-value confusion,tests/pareto/test_r2v_traffic_candidate_selector.py
+synther/adg/diffusion_adapter.py,generative score and denoise,pareto/r2v/generative_scorer.py;traffic_artifact_schema.py,backend hook and score artifact,conceptual,yes,partial,score artifact or checkpoint,traffic scores,overclaiming repair,tests/pareto/test_r2v_traffic_artifact_schema.py
+synther/adg/recovery.py,repair projection,traffic_candidate_selector repair story,proposal status,no,yes,yes for true repaired states,candidate rows,repair_story_match,illegal traffic transitions,story tests
+synther/adg/gates.py,support OOD dynamics gates,traffic gates and v2 mapping,admission masks,conceptual,yes,partial,candidate rows,gate masks,semantic mismatch,gate ablation tests
+synther/adg/admission.py,enhanced dataset and weights,apply_candidate_weights;build_pairs.py,weighted replay,no,yes,partial,admission masks,weighted JSONL,append-vs-weight mismatch,pair builder tests
+synther/replay_enhancement/artifact.py,artifact load/save,artifact_validation.py;traffic_artifact_schema.py,fail-closed validation,no,yes,no,enhanced npz,validated JSONL,schema drift,artifact tests
+scripts/run_r2v_offline.py,runner plan,jinan_pair_ablation_runner.py;traffic_experiment_plan.py,traffic command plan,no,yes,no,CLI args,command plan,CLI mismatch,experiment plan tests
+tests/test_adg_*.py,source invariants,tests/pareto/test_r2v_*.py,traffic invariants,no,no,yes,D4RL fixtures,traffic fixtures,coverage gaps,targeted pytest

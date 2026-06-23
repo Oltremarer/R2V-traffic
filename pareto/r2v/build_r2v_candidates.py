@@ -15,6 +15,8 @@ from pareto.common.io import append_jsonl, write_json
 from pareto.r2v.artifact_validation import validate_unique_transition_ids
 from pareto.r2v.traffic_candidate_selector import (
     R2VTrafficSelectorConfig,
+    SUPPORTED_ADMISSION_MODES,
+    SUPPORTED_REPAIR_METADATA_POLICIES,
     SUPPORTED_REPAIR_STORIES,
     apply_candidate_weights,
     select_r2v_candidates,
@@ -121,6 +123,31 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--repair_metadata_policy",
+        choices=tuple(sorted(SUPPORTED_REPAIR_METADATA_POLICIES)),
+        default="require_metadata",
+        help=(
+            "How to handle repair stories when source/final gate metadata is absent. "
+            "require_metadata is fail-closed; metadata_or_proxy uses computed gates as a "
+            "clearly marked proxy for smoke/integration runs."
+        ),
+    )
+    parser.add_argument(
+        "--gate_variant",
+        choices=("full", "no_support", "no_ood", "no_dynamics"),
+        default="full",
+        help="Admission gate ablation. Full keeps rare/value/support/safety active.",
+    )
+    parser.add_argument(
+        "--admission_mode",
+        choices=tuple(sorted(SUPPORTED_ADMISSION_MODES)),
+        default="weights_only",
+        help=(
+            "How admitted candidates enter replay. weights_only preserves the original "
+            "transition set; weights_plus_repaired appends explicit repaired transition payloads."
+        ),
+    )
+    parser.add_argument(
         "--source_gates_key",
         default="metadata.r2v_source_gates",
         help="Dotted path to the pre-repair gate map used by --repair_story.",
@@ -130,8 +157,25 @@ def parse_args() -> argparse.Namespace:
         default="metadata.r2v_final_gates",
         help="Dotted path to the post-repair gate map used by --repair_story.",
     )
+    parser.add_argument(
+        "--repaired_transition_key",
+        default="metadata.r2v_repaired_transition",
+        help="Dotted path to an explicit repaired transition payload for weights_plus_repaired.",
+    )
     parser.add_argument("--base_weight", type=float, default=1.0)
+    parser.add_argument(
+        "--admitted_weight",
+        type=float,
+        default=None,
+        help="Exact sample weight for admitted candidates. When provided, it overrides admitted_weight_bonus.",
+    )
     parser.add_argument("--admitted_weight_bonus", type=float, default=2.0)
+    parser.add_argument(
+        "--repair_rejected_weight",
+        type=float,
+        default=2.0,
+        help="Sample weight for explicit repaired proposals that remain rejected by admission gates.",
+    )
     parser.add_argument("--max_weight", type=float, default=5.0)
     parser.add_argument(
         "--utility_weights",
@@ -155,10 +199,16 @@ def main() -> None:
         env_reward_weight=args.env_reward_weight,
         density_neighbors=args.density_neighbors,
         repair_story=args.repair_story,
+        repair_metadata_policy=args.repair_metadata_policy,
+        gate_variant=args.gate_variant,
+        admission_mode=args.admission_mode,
         source_gates_key=args.source_gates_key,
         final_gates_key=args.final_gates_key,
+        repaired_transition_key=args.repaired_transition_key,
         base_weight=args.base_weight,
+        admitted_weight=args.admitted_weight,
         admitted_weight_bonus=args.admitted_weight_bonus,
+        repair_rejected_weight=args.repair_rejected_weight,
         max_weight=args.max_weight,
         utility_weights=weights,
         score_artifact_path=args.score_artifact,

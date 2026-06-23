@@ -6,6 +6,7 @@ import pareto.data.build_pairs as build_pairs_module
 import pytest
 from pareto.data.build_pairs import build_pairs_from_records
 from pareto.data.validate_pairs import summarize_pairs_dir
+from pareto.r2v.traffic_artifact_schema import upgrade_weighted_row_to_v2_metadata
 
 
 def _record(sample_id, eff, safety, fairness, stability, valid=True):
@@ -212,6 +213,12 @@ def _write_r2v_weighted_rows(path: Path, rows):
 
 
 def _weighted_row(sample_id, weight, *, admitted=True, rare=True, value=True):
+    return upgrade_weighted_row_to_v2_metadata(
+        _legacy_weighted_row(sample_id, weight, admitted=admitted, rare=rare, value=value)
+    )
+
+
+def _legacy_weighted_row(sample_id, weight, *, admitted=True, rare=True, value=True):
     return {
         "sample_id": sample_id,
         "transition_id": f"transition_{sample_id}",
@@ -558,6 +565,27 @@ def test_r2v_weighted_pair_sampling_rejects_off_mode_with_weighted_file(tmp_path
             num_reversal_pairs=0,
             r2v_weighted_transitions=weighted_path,
             r2v_sampling_mode="off",
+        )
+
+
+def test_r2v_weighted_pair_sampling_rejects_legacy_weighted_artifact(tmp_path: Path):
+    records = [_record("s0", 0.0, 0.0, 0.0, 0.0), _record("s1", 1.0, 0.0, 0.0, 0.0)]
+    weighted_path = tmp_path / "legacy_weighted.jsonl"
+    _write_r2v_weighted_rows(
+        weighted_path,
+        [_legacy_weighted_row("s0", 1.0), _legacy_weighted_row("s1", 1.0)],
+    )
+
+    with pytest.raises(ValueError, match="r2v_traffic_schema_version"):
+        build_pairs_from_records(
+            records,
+            out_dir=tmp_path / "pairs",
+            num_objective_pairs=2,
+            num_preference_pairs=0,
+            num_dominance_pairs=0,
+            num_reversal_pairs=0,
+            r2v_weighted_transitions=weighted_path,
+            r2v_sampling_mode="full_r2v",
         )
 
 
