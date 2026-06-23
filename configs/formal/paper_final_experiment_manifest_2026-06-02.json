@@ -1,0 +1,260 @@
+{
+  "packet_type": "paper_final_experiment_manifest",
+  "execution_allowed_now": false,
+  "cities": [
+    {
+      "scenario": "jinan",
+      "traffic_file": "anon_3_4_jinan_real.json"
+    },
+    {
+      "scenario": "hangzhou",
+      "traffic_file": "anon_4_4_hangzhou_real.json"
+    },
+    {
+      "scenario": "newyork_28x7",
+      "traffic_file": "anon_28_7_newyork_real_double.json"
+    }
+  ],
+  "main_seed_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "seed_binding": {
+    "cityflow_seed": "seed_id",
+    "policy_seed": "seed_id",
+    "model_seed": "seed_id",
+    "reference_policy_seed": "seed_id"
+  },
+  "preference_templates": {
+    "efficiency_focused": [
+      0.7,
+      0.1,
+      0.1,
+      0.1
+    ],
+    "safety_focused": [
+      0.1,
+      0.7,
+      0.1,
+      0.1
+    ],
+    "fairness_focused": [
+      0.1,
+      0.1,
+      0.7,
+      0.1
+    ],
+    "stability_focused": [
+      0.1,
+      0.1,
+      0.1,
+      0.7
+    ],
+    "balanced": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ]
+  },
+  "model": {
+    "hidden_dim": 256,
+    "preference_dim": 4,
+    "action_dim": 4
+  },
+  "ppo": {
+    "algorithm_label": "PPO",
+    "hidden_dim": 256,
+    "lr": 0.0003,
+    "minibatch_size": 2048,
+    "update_epochs": 10,
+    "clip_eps": 0.2,
+    "rollout_horizon_sim_steps": 3600,
+    "total_env_steps_per_seed": 1000000,
+    "shaping_warmup_start": 0.0,
+    "shaping_warmup_end": 0.4,
+    "shaping_warmup_fraction": 0.3
+  },
+  "baselines": [
+    {
+      "name": "Random",
+      "status": "implemented",
+      "command_family": "run_random.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "FixedTime",
+      "status": "implemented",
+      "command_family": "run_fixedtime.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "MaxPressure",
+      "status": "implemented",
+      "command_family": "reference_eval",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "PressLight",
+      "status": "implemented",
+      "command_family": "run_presslight.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "MPLight",
+      "status": "implemented",
+      "command_family": "run_mplight.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "CoLight",
+      "status": "implemented",
+      "command_family": "run_colight.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "Advanced-Co",
+      "status": "implemented",
+      "command_family": "run_advanced_colight.py",
+      "city_support": [
+        "jinan",
+        "hangzhou",
+        "newyork_28x7"
+      ]
+    },
+    {
+      "name": "C2T-scalar",
+      "status": "missing_blocker",
+      "command_family": "scalar_reward_training",
+      "city_support": [],
+      "blocker": "C2T-scalar command or reviewer-approved exclusion is missing"
+    },
+    {
+      "name": "Cond-Scalar-RL",
+      "status": "missing_blocker",
+      "command_family": "formal_pilot_runner",
+      "city_support": [],
+      "blocker": "Cond-Scalar-RL all-city paper_final model and objective normalizer hashes are missing"
+    },
+    {
+      "name": "Weighted-RL",
+      "status": "missing_blocker",
+      "command_family": "formal_pilot_runner",
+      "city_support": [],
+      "blocker": "Weighted-RL -> weighted_proxy exact reviewer approval phrase is missing"
+    },
+    {
+      "name": "VectorQ-PPO",
+      "status": "missing_blocker",
+      "command_family": "formal_pilot_runner",
+      "city_support": [],
+      "blocker": "VectorQ-PPO all-city paper_final model and objective normalizer hashes are missing"
+    }
+  ],
+  "metric_families": {
+    "efficiency": {
+      "status": "implemented",
+      "metrics": [
+        "average_travel_time",
+        "average_waiting_time",
+        "average_queue_length"
+      ]
+    },
+    "safety": {
+      "status": "implemented",
+      "metrics": [
+        "ttc_p10",
+        "ttc_p50",
+        "ttc_violation_rate",
+        "harsh_brake_rate"
+      ]
+    },
+    "fairness": {
+      "status": "implemented",
+      "metrics": [
+        "waiting_time_imbalance"
+      ]
+    },
+    "stability": {
+      "status": "implemented",
+      "metrics": [
+        "phase_switch_rate",
+        "oscillation_index"
+      ]
+    },
+    "representation": {
+      "status": "missing_blocker",
+      "metrics": [
+        "obj_acc",
+        "pref_acc",
+        "rev_acc",
+        "dpr"
+      ],
+      "blocker": "all-city representation artifact source coverage is incomplete"
+    },
+    "pareto": {
+      "status": "implemented",
+      "metrics": [
+        "hypervolume",
+        "coverage",
+        "dominance_violation",
+        "utility",
+        "alignment"
+      ]
+    },
+    "controllability": {
+      "status": "implemented",
+      "metrics": [
+        "monotonicity",
+        "smoothness",
+        "calibration_error"
+      ]
+    },
+    "generalization": {
+      "status": "implemented",
+      "metrics": [
+        "heldout_preference_utility",
+        "shifted_traffic_att"
+      ]
+    }
+  },
+  "output_roots": {
+    "train": "records/paper_final/train_20260602_v1",
+    "eval": "records/paper_final/eval_20260602_v1",
+    "diagnostics": "records/paper_final/diagnostics_20260602_v1",
+    "preflight": "records/paper_final/preflight_20260602_v1"
+  },
+  "forbidden_actions": [
+    "ranking",
+    "plot",
+    "paper_table",
+    "paper_result_text"
+  ]
+}

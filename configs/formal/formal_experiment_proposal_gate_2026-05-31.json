@@ -1,0 +1,106 @@
+{
+  "commit_provenance": {
+    "dry_run_report_commit": "01cf9aaca635756e8be85f2125332f3464c3ad2a",
+    "packet_commit": "pending_formal_proposal_packet_commit",
+    "run_code_commit": "b7b9906"
+  },
+  "forbidden_artifacts": [
+    "best_method.json",
+    "best_method.txt",
+    "leaderboard.csv",
+    "main_results.csv",
+    "method_ranking.csv",
+    "paper_results.csv",
+    "performance_table.csv",
+    "performance_table.json",
+    "performance_table.md",
+    "performance_table.tex",
+    "preference_response_plot.pdf",
+    "preference_response_plot.png",
+    "preference_sweep.csv",
+    "ranking.csv",
+    "traffic_metrics.csv"
+  ],
+  "methods": {
+    "display_names": {
+      "env_reward": "EnvReward-QueuePenalty-PPO",
+      "film_scalar_potential": "FiLMScalar-PPO",
+      "weighted_proxy": "WeightedProxy-PPO"
+    },
+    "ppo_methods": [
+      "film_scalar_potential",
+      "weighted_proxy",
+      "env_reward"
+    ],
+    "reference_only_methods": [
+      "MaxPressure",
+      "AdvancedMaxPressure"
+    ]
+  },
+  "permissions": {
+    "city_expansion_allowed": false,
+    "formal_experiment_allowed": false,
+    "method_ranking_allowed": false,
+    "performance_claim_allowed": false,
+    "performance_table_allowed": false,
+    "seed_expansion_allowed": false
+  },
+  "planned_scope_if_later_approved": {
+    "candidate_cities": [
+      "jinan"
+    ],
+    "candidate_seeds": [
+      0,
+      1,
+      2
+    ],
+    "candidate_traffic_files": [
+      "anon_3_4_jinan_real.json"
+    ],
+    "note": "These are proposal-only planned values and must not be executed until Pro explicitly approves formal runs."
+  },
+  "proposal_type": "formal_experiment_proposal_gate_packet",
+  "required_metadata_fields": [
+    "checkpoint_use",
+    "cityflow_seed",
+    "episodes",
+    "formal_experiment",
+    "max_decision_steps_per_episode",
+    "method_display_name",
+    "min_action_time",
+    "model_seed",
+    "not_for_main_results",
+    "performance_claim",
+    "pilot_only",
+    "policy_seed",
+    "reward_adapter",
+    "reward_adapter_semantics"
+  ],
+  "reward_policy": {
+    "env_reward": {
+      "allowed_role": "diagnostic_ablation_only",
+      "may_be_called_llmlight_original_reward": false,
+      "method_display_name": "EnvReward-QueuePenalty-PPO",
+      "reward_adapter_semantics": "queue_length_penalty_proxy"
+    }
+  },
+  "scope": {
+    "current_stage": "formal_readiness_proposal_only",
+    "generates_ranking_or_performance_table": false,
+    "runs_new_cityflow_training": false
+  },
+  "stop_conditions": [
+    "budget_mismatch",
+    "checkpoint_save_or_load_fail",
+    "direct_inner_step_call",
+    "env_reward_all_zero",
+    "env_reward_name_regression",
+    "env_reward_wrong_source",
+    "forbidden_artifact",
+    "missing_metadata",
+    "nonfinite_logits_or_grad",
+    "nonfinite_loss",
+    "nonfinite_reward",
+    "preference_not_conditioning_actor_critic"
+  ]
+}

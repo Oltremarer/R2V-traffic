@@ -1,0 +1,40 @@
+{
+  "model": {
+    "action_dim": 4,
+    "hidden_dim": 64,
+    "obs_dim": 193,
+    "preference_dim": 4
+  },
+  "pilot": {
+    "cityflow_seed": 0,
+    "formal_gate_decision_path": "records/preformal_final/formal_gate_decision.json",
+    "film_model_hash": "08ffb15f2f33ddb0e9f6fbfd1f6a0ba107d901c3297014cc7dd5b2f94ff4e642",
+    "methods": [
+      "film_scalar_potential",
+      "weighted_proxy",
+      "env_reward"
+    ],
+    "model_seed": 0,
+    "objective_normalizer_hash": "b2c55e7d2c42856a",
+    "pilot_spec_path": "docs/pro_reviews/jinan_1seed_film_pilot_spec_2026-05-30.md",
+    "policy_seed": 0,
+    "scenario": "jinan",
+    "state_encoder_hash": "4d1c2b4e276043ac",
+    "traffic_file": "anon_3_4_jinan_real.json"
+  },
+  "ppo": {
+    "algorithm_label": "PPO",
+    "clip_eps": 0.2,
+    "entropy_coef": 0.01,
+    "gae_lambda": 0.95,
+    "gamma": 0.99,
+    "lr": 0.0003,
+    "max_grad_norm": 0.5,
+    "minibatch_size": 64,
+    "normalize_advantages": true,
+    "requires_clipped_objective": true,
+    "rollout_steps": 120,
+    "update_epochs": 4,
+    "value_loss_coef": 0.5
+  }
+}

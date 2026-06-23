@@ -1,0 +1,1 @@
+"""Pareto model definitions."""

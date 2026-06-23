@@ -1,0 +1,52 @@
+{
+  "model": {
+    "action_dim": 4,
+    "hidden_dim": 256,
+    "obs_dim": 193,
+    "preference_dim": 4
+  },
+  "pilot": {
+    "cityflow_seed": 0,
+    "eval_preferences": [
+      "efficiency_focused",
+      "safety_focused",
+      "fairness_focused",
+      "stability_focused",
+      "balanced"
+    ],
+    "eval_protocol": "paper_final_preference_sweep_guarded",
+    "methods": [
+      "vector_quality_potential",
+      "film_scalar_potential",
+      "weighted_proxy"
+    ],
+    "model_seed": 0,
+    "policy_seed": 0,
+    "preference_sampling": "episode_fixed",
+    "scenario": "hangzhou",
+    "traffic_file": "anon_4_4_hangzhou_real.json",
+    "train_preferences": [
+      "efficiency_focused",
+      "safety_focused",
+      "fairness_focused",
+      "stability_focused",
+      "balanced"
+    ]
+  },
+  "ppo": {
+    "algorithm_label": "PPO",
+    "clip_eps": 0.2,
+    "entropy_coef": 0.01,
+    "gae_lambda": 0.95,
+    "gamma": 0.99,
+    "lr": 0.0003,
+    "max_grad_norm": 0.5,
+    "minibatch_size": 2048,
+    "normalize_advantages": true,
+    "requires_clipped_objective": true,
+    "rollout_steps": 3600,
+    "total_env_steps_per_seed": 1000000,
+    "update_epochs": 10,
+    "value_loss_coef": 0.5
+  }
+}

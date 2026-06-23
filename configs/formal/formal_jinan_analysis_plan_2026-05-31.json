@@ -1,0 +1,86 @@
+{
+  "allowed_future_metrics": [
+    "guard_pass_fail",
+    "budget_consistency",
+    "finite_training_logs",
+    "checkpoint_load_status",
+    "env_reward_source_nonzero_status"
+  ],
+  "allowed_future_outputs": [
+    "formal_analysis_packet.md",
+    "guard_audit_summary.json",
+    "training_stability_sanity.json"
+  ],
+  "approval": {
+    "analysis_allowed_now": false,
+    "received_exact_phrase": false,
+    "required_exact_phrase": "FORMAL JINAN NO-RANKING ANALYSIS GO"
+  },
+  "forbidden_outputs": [
+    "best_method.json",
+    "best_method.txt",
+    "leaderboard.csv",
+    "main_results.csv",
+    "method_ranking.csv",
+    "paper_results.csv",
+    "performance_table.csv",
+    "performance_table.json",
+    "performance_table.md",
+    "performance_table.tex",
+    "preference_response_plot.pdf",
+    "preference_response_plot.png",
+    "preference_sweep.csv",
+    "ranking.csv",
+    "traffic_metrics.csv"
+  ],
+  "forbidden_wording": [
+    "best method",
+    "beats",
+    "leaderboard",
+    "outperforms",
+    "ranked",
+    "traffic improvement"
+  ],
+  "inputs": {
+    "allowed_future_input_roots": [
+      "records/formal_jinan_3seed_guarded_20260531"
+    ],
+    "guard_audit_json": "docs/pro_reviews/formal_jinan_3seed_guard_audit_2026-05-31.json"
+  },
+  "method_policy": {
+    "env_reward_role": "diagnostic_ablation_only",
+    "ppo_methods": [
+      "film_scalar_potential",
+      "weighted_proxy",
+      "env_reward"
+    ],
+    "reference_only_methods": [
+      "MaxPressure",
+      "AdvancedMaxPressure"
+    ]
+  },
+  "permissions": {
+    "best_method_claim_allowed": false,
+    "city_expansion_allowed": false,
+    "extra_methods_allowed": false,
+    "performance_table_allowed": false,
+    "ranking_allowed": false,
+    "seed_expansion_allowed": false,
+    "traffic_control_improvement_claim_allowed": false
+  },
+  "plan_type": "formal_jinan_postrun_analysis_plan",
+  "scope": {
+    "consumes_run_outputs": false,
+    "generates_analysis_outputs": false,
+    "generates_ranking_or_performance_table": false,
+    "scenario": "jinan",
+    "stage": "analysis_plan_only",
+    "traffic_file": "anon_3_4_jinan_real.json"
+  },
+  "statistical_policy": {
+    "allowed_summary": "guard_and_training_stability_only",
+    "mean_std_performance_table": "forbidden",
+    "method_comparison_claim": "forbidden",
+    "ranking": "forbidden"
+  }
+}

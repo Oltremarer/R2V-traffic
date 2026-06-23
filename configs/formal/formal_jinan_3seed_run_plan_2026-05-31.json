@@ -1,0 +1,135 @@
+{
+  "approval": {
+    "execution_allowed_now": false,
+    "received_exact_phrase": false,
+    "required_exact_phrase": "PARETO PPO FORMAL JINAN 3-SEED EXECUTION GO"
+  },
+  "budget": {
+    "adaptive_early_stop": false,
+    "checkpoint_cadence": "last_only_plus_status",
+    "episodes_per_method_seed": 5,
+    "eval_cadence": "post_run_guard_audit_only",
+    "max_decision_steps_per_episode": 120,
+    "min_action_time": 30,
+    "policy_update_schedule": "fixed_rollout_steps",
+    "rollout_steps": 120,
+    "safety_stop_only": true
+  },
+  "metadata_schema": {
+    "required_fields": [
+      "checkpoint_use",
+      "cityflow_seed",
+      "episodes",
+      "formal_experiment",
+      "max_decision_steps_per_episode",
+      "method_display_name",
+      "min_action_time",
+      "model_seed",
+      "not_for_main_results",
+      "performance_claim",
+      "pilot_only",
+      "policy_seed",
+      "reward_adapter",
+      "reward_adapter_semantics"
+    ]
+  },
+  "methods": {
+    "display_names": {
+      "env_reward": "EnvReward-QueuePenalty-PPO",
+      "film_scalar_potential": "FiLMScalar-PPO",
+      "weighted_proxy": "WeightedProxy-PPO"
+    },
+    "ppo_methods": [
+      "film_scalar_potential",
+      "weighted_proxy",
+      "env_reward"
+    ],
+    "reference_only_methods": [
+      "MaxPressure",
+      "AdvancedMaxPressure"
+    ]
+  },
+  "outputs": {
+    "allowed": [
+      "checkpoint_last.pt",
+      "command.txt",
+      "formal_run_plan.json",
+      "formal_run_plan.md",
+      "loss_debug.jsonl",
+      "metadata.json",
+      "reward_components.jsonl",
+      "status.json",
+      "stderr.txt",
+      "stdout.txt",
+      "train_metrics.jsonl",
+      "training_checkpoint_last.pt"
+    ],
+    "forbidden": [
+      "best_method.json",
+      "best_method.txt",
+      "leaderboard.csv",
+      "main_results.csv",
+      "method_ranking.csv",
+      "paper_results.csv",
+      "performance_table.csv",
+      "performance_table.json",
+      "performance_table.md",
+      "performance_table.tex",
+      "preference_response_plot.pdf",
+      "preference_response_plot.png",
+      "preference_sweep.csv",
+      "ranking.csv",
+      "traffic_metrics.csv"
+    ]
+  },
+  "plan_type": "formal_jinan_3seed_run_plan",
+  "reward_policy": {
+    "env_reward": {
+      "allowed_role": "diagnostic_ablation_only",
+      "may_be_called_llmlight_original_reward": false,
+      "method_display_name": "EnvReward-QueuePenalty-PPO",
+      "reward_adapter_semantics": "queue_length_penalty_proxy"
+    }
+  },
+  "scope": {
+    "cities": [
+      "jinan"
+    ],
+    "generates_ranking_or_performance_table": false,
+    "runs_new_cityflow_training": false,
+    "scenario": "jinan",
+    "stage": "formal_run_plan_only",
+    "traffic_file": "anon_3_4_jinan_real.json",
+    "traffic_files": [
+      "anon_3_4_jinan_real.json"
+    ]
+  },
+  "seed_binding": {
+    "candidate_seeds": [
+      0,
+      1,
+      2
+    ],
+    "cityflow_seed": "seed_id",
+    "model_seed": "seed_id",
+    "policy_seed": "seed_id"
+  },
+  "stop_conditions": [
+    "budget_mismatch",
+    "checkpoint_save_or_load_fail",
+    "city_or_traffic_file_mismatch",
+    "direct_inner_step_call",
+    "env_reward_all_zero",
+    "env_reward_name_regression",
+    "env_reward_wrong_source",
+    "forbidden_artifact",
+    "missing_metadata",
+    "nonfinite_logits_or_grad",
+    "nonfinite_loss",
+    "nonfinite_reward",
+    "preference_not_conditioning_actor_critic",
+    "ranking_or_performance_text",
+    "seed_mismatch",
+    "unapproved_method"
+  ]
+}
